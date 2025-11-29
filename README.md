@@ -9,6 +9,6 @@ Students are expected to:
 Student Info
 =========================
 
-* Student Name: USTH ICT1
-* Student ID: Not-Vietnamese
+* Student Name: Nguyễn Thế Thịnh
+* Student ID: 22BA13295
 * Student Group ID: Not-for-now

@@ -11,4 +11,4 @@ Student Info
 
 * Student Name: Nguyễn Thế Thịnh
 * Student ID: 22BA13295
-* Student Group ID: Not-for-now
+* Student Group ID: 14

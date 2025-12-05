@@ -1,0 +1,160 @@
+\documentclass[a4paper,12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{geometry}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, calc}
+
+\geometry{
+ a4paper,
+ total={170mm,257mm},
+ left=20mm,
+ top=20mm,
+}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.96,0.96,0.96}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{color{blue}},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=4,
+    frame=single
+}
+
+\lstset{style=mystyle}
+\title{\textbf{Report: TCP File Transfer Application}}
+\author{Student Name: [Nguyen The Thinh] \\ Student ID: [22BA13295]}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+The objective of this project is to design and implement a peer-to-peer file transfer application using the TCP/IP protocol suite. The system consists of a Server (sender) and a Client (receiver), implemented in C++ using the Linux Sockets API. The primary goal is to ensure reliable data transmission over a network connection.
+
+\section{Protocol Design}
+To avoid ambiguity in data transmission, the protocol follows a strict sequence of events. Instead of a simple request-response model, the interaction is stateful.
+
+The communication flow is illustrated in the Sequence Diagram below (Figure \ref{fig:protocol}). Time flows from top to bottom:
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[>=Stealth, auto, node distance=1.5cm, thick]
+
+        \node[draw, rectangle, minimum width=2.5cm, minimum height=1cm, fill=blue!10] (S) at (0,0) {\textbf{Server}};
+        \node[draw, rectangle, minimum width=2.5cm, minimum height=1cm, fill=green!10] (C) at (6,0) {\textbf{Client}};
+        
+
+        \draw[dashed] (S.south) -- ++(0,-7) coordinate (Send);
+        \draw[dashed] (C.south) -- ++(0,-7) coordinate (Cend);
+        
+        \node[anchor=east, align=right] at (-0.5, -1) {Socket(), Bind(),\\ Listen()};
+        \node[anchor=west, align=left] at (6.5, -1) {Socket()};
+        
+        \draw[->] (6,-2) -- node[above] {\small 1. Connect Request (SYN)} (0,-2.5);
+        \draw[->] (0,-3) -- node[above] {\small 2. Accept Connection (SYN-ACK)} (6,-3.5);
+        
+        \draw[->, ultra thick, blue] (0,-4.5) -- node[above] {\textbf{3. Send File Data (Chunks)}} (6,-4.5);
+        \node[font=\footnotesize] at (3, -4.8) {Continuous Stream of Bytes};
+        
+        \draw[<->] (0,-6) -- node[above] {\small 4. Close Connection (FIN)} (6,-6);
+
+    \end{tikzpicture}
+    \caption{Protocol Sequence Diagram}
+    \label{fig:protocol}
+\end{figure}
+
+\section{System Organization}
+The system architecture follows a Client-Server model. The two components interact through the Operating System's transport layer.
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[node distance=2cm, auto]
+        % Define styles
+        \tikzstyle{block} = [rectangle, draw, fill=white, text width=2.5cm, text centered, rounded corners, minimum height=1.5cm]
+        \tikzstyle{cloud} = [draw, ellipse, fill=gray!10, node distance=3cm, minimum height=1.5cm]
+        \tikzstyle{line} = [draw, -latex', thick]
+
+        % Nodes
+        \node [block, fill=blue!10] (server) {\textbf{Server App} \\ (Sender)};
+        \node [cloud, right of=server, node distance=4.5cm] (internet) {TCP/IP Network};
+        \node [block, right of=internet, node distance=4.5cm, fill=green!10] (client) {\textbf{Client App} \\ (Receiver)};
+        
+        \node [below of=server, node distance=2cm] (file1) {\textit{Input File}};
+        \node [below of=client, node distance=2cm] (file2) {\textit{Output File}};
+
+        % Edges
+        \path [line] (server) -- (internet);
+        \path [line] (internet) -- (client);
+        \path [line, dashed] (file1) -- (server);
+        \path [line, dashed] (client) -- (file2);
+    \end{tikzpicture}
+    \caption{System Organization and Data Flow}
+    \label{fig:system}
+\end{figure}
+
+\section{Implementation Details}
+The implementation relies on blocking sockets. Below are the critical snippets handling the file transfer logic.
+
+\subsection{Server Side (Sender)}
+The server reads the file in binary mode and sends it in chunks of 1024 bytes. We use \texttt{gcount()} to ensure only valid bytes are sent.
+
+\begin{lstlisting}[language=C++, caption=Server Code Snippet]
+// Open the file
+ifstream fileToSend(filename.c_str(), ios::binary);
+char buffer[BUFFER_SIZE];
+
+while (fileToSend) {
+    fileToSend.read(buffer, BUFFER_SIZE);
+    streamsize bytesRead = fileToSend.gcount();
+    
+    // Only send the exact amount of bytes read
+    if (bytesRead > 0) {
+        send(clientSocket, buffer, bytesRead, 0);
+    }
+}
+fileToSend.close();
+\end{lstlisting}
+
+\subsection{Client Side (Receiver)}
+The client connects to the server and enters a loop to receive data until the server closes the connection (returns 0).
+
+\begin{lstlisting}[language=C++, caption=Client Code Snippet]
+// Create output file
+ofstream receivedFile(saveFileName.c_str(), ios::binary);
+char buffer[BUFFER_SIZE];
+int bytesReceived;
+
+// Receive loop
+while ((bytesReceived = recv(clientSocket, buffer, BUFFER_SIZE, 0)) > 0) {
+    receivedFile.write(buffer, bytesReceived);
+}
+
+receivedFile.close();
+\end{lstlisting}
+
+\section{Conclusion}
+The TCP file transfer application has been successfully designed and implemented. The use of TCP sockets guaranties data integrity during transfer. The sequence diagram clearly defines the interaction states, and the modular code structure allows for easy maintenance and future upgrades (e.g., adding multithreading).
+
+\end{document}

@@ -1,0 +1,169 @@
+\documentclass[a4paper,12pt]{article}
+
+% Required packages
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{float}
+\usepackage{geometry}
+\usetikzlibrary{shapes.geometric, arrows, positioning, calc}
+
+% Page geometry settings
+\geometry{
+ a4paper,
+ total={170mm,257mm},
+ left=20mm,
+ top=20mm,
+}
+
+% Code listing settings
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+\lstset{style=mystyle}
+
+% Report metadata
+\title{\textbf{Report: RPC File Transfer System}}
+\author{Student Name: [Nguyen The Thinh] \\ Student ID: [22BA13295]}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Design of the RPC Service}
+
+To implement a robust and efficient file transfer service, we adopted a \textbf{Hybrid Protocol} approach. This protocol combines the structured clarity of JSON-RPC for control messages with the raw performance of TCP streams for data transfer.
+
+The communication process consists of two distinct phases:
+\begin{itemize}
+    \item \textbf{Phase 1 (Handshake):} The Client sends a JSON packet containing metadata (method name, filename). The Server parses this JSON and responds with a confirmation ("OK").
+    \item \textbf{Phase 2 (Data Stream):} Upon receiving confirmation, the Client switches to raw binary mode and streams the file content directly. The Server reads until the stream ends (EOF).
+\end{itemize}
+
+% Sequence Diagram
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[node distance=10cm, auto, >=stealth]
+        % Client and Server Nodes
+        \node[] (client) {\textbf{Client}};
+        \node[right=10cm of client] (server) {\textbf{Server}};
+        
+        % Vertical lines
+        \draw[thick] (client) -- ++(0,-7);
+        \draw[thick] (server) -- ++(0,-7);
+        
+        % Arrow 1: Send JSON Command
+        \draw[->, thick, blue] ($(client)+(0,-1.5)$) -- node[midway, above, align=center, scale=0.8] {1. Send JSON Cmd \\ \texttt{\{ "method": "upload", "filename": "data.txt" \}}} ($(server)+(0,-1.5)$);
+        
+        % Arrow 2: Server Response
+        \draw[<-, thick, green!60!black] ($(client)+(0,-3.5)$) -- node[midway, above, align=center, scale=0.8] {2. Response JSON \\ \texttt{\{ "result": "OK" \}}} ($(server)+(0,-3.5)$);
+        
+        % Arrow 3: Binary Data Stream
+        \draw[->, thick, red] ($(client)+(0,-5.5)$) -- node[midway, above, scale=0.8] {3. Binary Data Stream (Raw Bytes)} ($(server)+(0,-5.5)$);
+        
+        % Time Axis
+        \node at ($(client)+(0,-7.5)$) {Time};
+        \draw[->] ($(client)+(0,-7.2)$) -- ($(client)+(0,-7.8)$);
+    \end{tikzpicture}
+    \caption{Sequence Diagram of the RPC File Transfer Protocol}
+    \label{fig:sequence}
+\end{figure}
+
+\section{System Organization}
+
+The system follows a classic \textbf{Client-Server Architecture}. It is organized into two main standalone applications written in C++:
+
+\begin{itemize}
+    \item \textbf{Client Node:} Responsible for reading local files, constructing JSON payloads, and initiating the connection. It handles user input (CLI arguments) to determine the target server and file.
+    \item \textbf{Server Node:} A persistent listener that waits for incoming connections on a specific port (2702). It handles JSON parsing and file writing operations.
+\end{itemize}
+
+% Block Diagram
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[
+        box/.style={rectangle, draw=black, thick, fill=white, minimum width=3.5cm, minimum height=1.5cm, align=center},
+        arrow/.style={->, thick, >=stealth}
+    ]
+        % Main Nodes
+        \node[box, fill=blue!10] (client) {\textbf{Client App} \\ \textit{(Reader \& Sender)}};
+        \node[box, fill=green!10, right=5cm of client] (server) {\textbf{Server App} \\ \textit{(Parser \& Writer)}};
+        
+        % Interaction Arrows
+        \draw[arrow] (client.15) -- node[above] {Network (TCP)} (server.165);
+        \draw[arrow] (server.195) -- node[below] {Acknowledgments} (client.345);
+        
+        % Internal Module Details
+        \node[below=0.5cm of client, align=center, scale=0.8] (c_detail) {Modules: \\ CLI Parser \\ JSON Builder \\ File Stream (Input)};
+        \node[below=0.5cm of server, align=center, scale=0.8] (s_detail) {Modules: \\ Socket Listener \\ JSON Parser \\ File Stream (Output)};
+        
+        % Linking lines
+        \draw[dashed] (client) -- (c_detail);
+        \draw[dashed] (server) -- (s_detail);
+
+    \end{tikzpicture}
+    \caption{System Organization and Component View}
+    \label{fig:organization}
+\end{figure}
+
+\section{Implementation of File Transfer}
+
+The implementation leverages C++ Standard Library features such as \texttt{std::string} for JSON manipulation and \texttt{std::fstream} for binary file operations.
+
+Below is the core snippet showing the transition from JSON parsing to Binary file writing on the Server side. This demonstrates how we extract the filename and efficiently save the incoming data stream.
+
+\begin{lstlisting}[language=C++, caption={Server-side Implementation: JSON Parsing and Binary Writing}]
+// 1. Read the JSON Command first
+int n = read(newsockfd, buffer.data(), buffer.size());
+string json_str(buffer.data());
+
+// 2. Parse JSON to get filename (Custom Helper Function)
+string method = parse_json_value(json_str, "method");
+if (method == "upload") {
+    string filename = parse_json_value(json_str, "filename");
+    
+    // 3. Send Acknowledgment
+    string response = "{\"result\": \"OK\"}";
+    write(newsockfd, response.c_str(), response.length());
+
+    // 4. Switch to Binary Mode for File Writing
+    ofstream outfile(filename, ios::binary);
+    
+    // Loop to receive raw bytes until EOF
+    while (true) {
+        int bytes_received = read(newsockfd, buffer.data(), buffer.size());
+        if (bytes_received <= 0) break; // End of stream
+
+        outfile.write(buffer.data(), bytes_received);
+    }
+    outfile.close();
+}
+\end{lstlisting}
+
+This logic ensures that large files are transferred in chunks without loading the entire file into memory, providing efficiency and scalability.
+
+\end{document}
